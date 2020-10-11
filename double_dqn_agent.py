@@ -12,8 +12,8 @@ import torch.nn.functional as F
 import torch.optim as optim
 
 # HYPER-PARAMETERS CHOSEN BY ROUGH EXPERIMENTATION
-BATCH_SIZE = 128
-REPLAY_SIZE = int(1e5)
+BATCH_SIZE = 512
+REPLAY_SIZE = int(1e6)
 GAMMA = 0.99
 TAU = 0.005
 LR = 1e-4
@@ -95,10 +95,15 @@ class DQNAgent:
         '''
         Defining the act method which selects an action given a state
         '''
-        state = torch.from_numpy(state).float().unsqueeze(0).to(device)
+        # convert the output from the object parser into a concatenated tensor for input into agent
+        vectors = torch.tensor(state[0]).squeeze().reshape(-1) 
+        scalars =torch.tensor(state[1]).squeeze().reshape(-1)
+        
+        inp = torch.cat((vectors,scalars),0).to(device)
+
         self.local_net.eval()
         with torch.no_grad():
-            action_values = self.local_net(state)
+            action_values = self.local_net(inp)
         self.local_net.train()
 
         # Epsilon-greedy action selection
@@ -141,11 +146,20 @@ class ReplayBuffer:
         '''
         experiences = random.sample(self.memory, k=self.batch_size)
 
+        #stacking states
+        states_list = []
+        for e in experiences:
+            e_list=[]
+            for s in e.state:
+                e_list.append(s.squeeze().reshape(-1))
+            states_list.append(np.concatenate(e_list))
+
         states = (
-            torch.from_numpy(np.vstack([e.state for e in experiences if e is not None]))
+            torch.from_numpy(np.vstack(states_list))
             .float()
             .to(device)
-        )
+        )  
+                
         actions = (
             torch.from_numpy(
                 np.vstack([e.action for e in experiences if e is not None])
@@ -160,13 +174,23 @@ class ReplayBuffer:
             .float()
             .to(device)
         )
+
+        #stacking next_states
+        next_states_list = []
+        for e in experiences:
+            e_list=[]
+            for s in e.next_state:
+                e_list.append(s.squeeze().reshape(-1))
+            next_states_list.append(np.concatenate(e_list))
+        
         next_states = (
             torch.from_numpy(
-                np.vstack([e.next_state for e in experiences if e is not None])
+                np.vstack(next_states_list)
             )
             .float()
             .to(device)
         )
+
         dones = (
             torch.from_numpy(
                 (np.vstack([e.done for e in experiences if e is not None])).astype(
